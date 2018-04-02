@@ -59,6 +59,11 @@
   width height
   left right top)
 
+(defvar *font-files* (make-hash-table :test 'equal)
+  "Hashtable that holds a list of all registered font files.
+The hash table is keyed on a two-element list, the family and face names
+and its value is the path to the font file.")
+
 
 ;;;;;;; mcclim interface
 (defclass clx-truetype-font (truetype-font)
@@ -68,22 +73,46 @@
    (glyph-width-cache :initform (make-gcache))
    (char->glyph-info  :initform (make-hash-table :size 256))))
 
-(defun register-all-ttf-fonts (port &optional (dir *truetype-font-path*))
-  (when *truetype-font-path*
-    (dolist (path (directory (merge-pathnames "*.ttf" dir)))
-      ;; make-truetype-font make fail if zpb can't load the particular
-      ;; file - in that case it signals an error and no font is
-      ;; created. In that case we just skip that file- hence IGNORE-ERRORS.
-      (ignore-errors
+(defun register-all-ttf-fonts (port)
+  (register-all-font-directories port)
+  (loop
+    for path being each hash-value in *font-files*
+    ;; make-truetype-font make fail if zpb can't load the particular
+    ;; file - in that case it signals an error and no font is
+    ;; created. In that case we just skip that file- hence IGNORE-ERRORS.
+    do (ignore-errors
         (map () #'(lambda (size)
                     (make-truetype-font port path size))
-             '(8 10 12 14 18 24 48 72))))))
+             '(8 10 12 14 18 24 48 72)))))
+
+(defvar *font-files-initialised* nil
+  "True if REGISTER-ALL-FONT-DIRECTORIES has been called.")
+
+(defun register-all-font-directories (port &key force-reload)
+  (when (or force-reload
+            (not *font-files-initialised*))
+    (loop
+      for dir in '(#p"/usr/share/fonts/"
+                   #p"/usr/local/share/fonts/"
+                   #p"~/.fonts/")
+      do (register-font-directory port dir))
+    (setf *font-files-initialised* t)))
+
+(defun register-font-directory (port dir)
+  (loop
+    with files = (directory (merge-pathnames "**/*.*" dir))
+    for file in files
+    when (equal (string-downcase (pathname-type file)) "ttf")
+      do (handler-case
+             (register-font-file port file)
+           (error (condition)
+             (warn "Failed to load font: ~s: ~a" file condition)))))
 
 (defmethod clim-extensions:port-all-font-families :around
     ((port clim-clx::clx-port) &key invalidate-cache)
   (when (or (null (clim-clx::font-families port)) invalidate-cache)
     (setf (clim-clx::font-families port) (clim-clx::reload-font-table port)))
-  (register-all-ttf-fonts port)
+  (register-all-font-directories port)
   (append (call-next-method)
           (clim-clx::font-families port)))
 
@@ -92,6 +121,26 @@
       (font-faces        (make-hash-table :test #'equal))
       (font-cache        (make-hash-table :test #'equal))
       (text-style-cache  (make-hash-table :test #'eql)))
+
+  (defun register-font-file (port file)
+    (climi::with-lock-held (*zpb-font-lock*)
+      (let ((loader (zpb-ttf:open-font-loader file)))
+        (let* ((family-name (zpb-ttf:family-name loader))
+               (family (ensure-gethash family-name font-families
+                                       (make-instance 'truetype-font-family
+                                                      :port port
+                                                      :name (zpb-ttf:family-name loader))))
+               (face-name (zpb-ttf:subfamily-name loader))
+               (font-face (ensure-gethash
+                           (list family-name face-name) font-faces
+                           (make-instance 'truetype-face
+                                          :family family
+                                          :name (zpb-ttf:subfamily-name loader)
+                                          :loader loader))))
+          (declare (ignore font-face))
+          (setf (gethash (list family-name face-name) *font-files*) file)
+          (pushnew family (clim-clx::font-families port))))))
+
   (defun make-truetype-font (port filename size)
     (climi::with-lock-held (*zpb-font-lock*)
       (let* ((display (clim-clx::clx-port-display port))
@@ -121,7 +170,8 @@
          font))))
 
   (defun find-truetype-font (text-style)
-    (gethash text-style text-style-cache)))
+    (let ((x (gethash text-style text-style-cache)))
+      (log:info "looking for ~s, found: ~s" text-style x))))
 
 
 
@@ -380,36 +430,22 @@
    (text-style :reader missing-font-text-style :initarg :text-style))
   (:report (lambda (condition stream)
              (format stream  "Cannot access ~W (~a)
-Your *truetype-font-path* is currently ~W
 The following files should exist:~&~{  ~A~^~%~}"
                      (missing-font-filename condition)
                      (missing-font-text-style condition)
-                     *truetype-font-path*
                      (mapcar #'cdr *families/faces*)))))
 
 (defmethod clim-clx::text-style-to-X-font :around
     ((port clim-clx::clx-port) (text-style standard-text-style))
   (labels
       ((find-and-make-truetype-font (family face size)
-         (let* ((font-path-maybe-relative
-                 (cdr (assoc (list family face) *families/faces*
-                             :test #'equal)))
-                (font-path
-                 (and font-path-maybe-relative
-                      (case (car (pathname-directory
-                                  font-path-maybe-relative))
-                        (:absolute font-path-maybe-relative)
-                        (otherwise (merge-pathnames
-                                    font-path-maybe-relative
-                                    (or *truetype-font-path* "")))))))
-           (if (and font-path (probe-file font-path))
-               (make-truetype-font port font-path size)
-               ;; We could error here, but we want to fallback to
-               ;; fonts provided by CLX server. Its better to have
-               ;; ugly fonts than none at all.
+         (register-all-font-directories port)
+         (let ((file (gethash (list family face) *font-files*)))
+           (if file
+               (make-truetype-font port file size)
                (or (call-next-method)
                    (error 'missing-font
-                          :filename font-path
+                          :filename file
                           :text-style text-style)))))
        (find-font ()
          (multiple-value-bind (family face size)

@@ -67,11 +67,11 @@ and its value is the path to the font file.")
 
 ;;;;;;; mcclim interface
 (defclass clx-truetype-font (truetype-font)
-  ((display           :initarg :display :reader clx-truetype-font-display)
-   (fixed-width       :initform nil)
-   (glyph-id-cache    :initform (make-gcache))
-   (glyph-width-cache :initform (make-gcache))
-   (char->glyph-info  :initform (make-hash-table :size 256))))
+  ((display             :initarg :display :reader clx-truetype-font-display)
+   (fixed-width         :initform nil)
+   (glyph-id-cache      :initform (make-gcache))
+   (glyph-size-cache    :initform (make-gcache))
+   (char->glyph-info    :initform (make-hash-table :size 256))))
 
 (defun register-all-ttf-fonts (port)
   (register-all-font-directories port)
@@ -170,8 +170,7 @@ and its value is the path to the font file.")
          font))))
 
   (defun find-truetype-font (text-style)
-    (let ((x (gethash text-style text-style-cache)))
-      (log:info "looking for ~s, found: ~s" text-style x))))
+    (gethash text-style text-style-cache)))
 
 
 
@@ -226,6 +225,12 @@ and its value is the path to the font file.")
 (defmethod clim-clx::font-glyph-right ((font truetype-font) char)
   (glyph-info-right (font-glyph-info font char)))
 
+(defun font-glyph-top (font char)
+  (glyph-info-top (font-glyph-info font char)))
+
+(defun font-glyph-height (font char)
+  (glyph-info-height (font-glyph-info font char)))
+
 ;;; Simple custom cache for glyph IDs and widths. Much faster than
 ;;; using the char->glyph-info hash table directly.
 
@@ -256,38 +261,39 @@ and its value is the path to the font file.")
   (declare (optimize (speed 3))
            (ignore translate))
 
-  (let ((width
-         ;; We could work a little harder and eliminate generic arithmetic
-         ;; here. It might shave a few percent off a draw-text benchmark.
-         ;; Rather silly to obsess over the array access considering that.
-         (macrolet ((compute ()
-                      `(loop with width-cache = (slot-value font 'glyph-width-cache)
-                          for i from start below end
-                          as char = (aref string i)
-                          as code = (char-code char)
-                          sum (or (gcache-get width-cache code)
-                                  (gcache-set width-cache code (clim-clx::font-glyph-width font char)))
-                            #+NIL (clim-clx::font-glyph-width font char))))
-           (if (numberp (slot-value font 'fixed-width))
-               (* (slot-value font 'fixed-width) (- end start))
-               (typecase string 
-                 (simple-string 
-                  (locally (declare (type simple-string string))
-                    (compute)))
-                 (string 
-                  (locally (declare (type string string))
-                    (compute)))
-                 (t (compute)))))))
-    (values
-     width
-     (clim-clx::font-ascent font)
-     (clim-clx::font-descent font)
-     (clim-clx::font-glyph-left font (char string start))
-     (- width (- (clim-clx::font-glyph-width font (char string (1- end)))
-                 (clim-clx::font-glyph-right font (char string (1- end)))))
-     (clim-clx::font-ascent font)
-     (clim-clx::font-descent font)
-     0 end)))
+  (multiple-value-bind (width top height)
+      (macrolet ((compute ()
+                   `(loop
+                      with size-cache = (slot-value font 'glyph-size-cache)
+                      for i from start below end
+                      as char = (aref string i)
+                      as code = (char-code char)
+                      for info = (or (gcache-get size-cache code)
+                                     (gcache-set size-cache code (font-glyph-info font char)))
+                      sum (glyph-info-width info) into width
+                      maximize (glyph-info-top info) into top
+                      maximize (glyph-info-height info) into height
+                      #+NIL (clim-clx::font-glyph-width font char)
+                      finally (return (values width top height)))))
+        (if (numberp (slot-value font 'fixed-width))
+            (* (slot-value font 'fixed-width) (- end start))
+            (typecase string
+              (simple-string
+               (locally (declare (type simple-string string))
+                 (compute)))
+              (string
+               (locally (declare (type string string))
+                 (compute)))
+              (t (compute)))))
+    (values width
+            top ; ascent
+            (- height top) ; descent
+            (clim-clx::font-glyph-left font (char string start))
+            (- width (- (clim-clx::font-glyph-width font (char string (1- end)))
+                        (clim-clx::font-glyph-right font (char string (1- end)))))
+            (clim-clx::font-ascent font)
+            (clim-clx::font-descent font)
+            0 end)))
 
 (defun drawable-picture (drawable)
   (or (getf (xlib:drawable-plist drawable) 'picture)

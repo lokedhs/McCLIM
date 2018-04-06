@@ -145,9 +145,7 @@
                 (floor min-x)
                 (ceiling max-y)
                 (round advance-width)
-                ;; Bah! Why does X add the vertical advance when we are rendering horizontally?
-                ;; Is this considered a property of the font and glyphs rather than a particular drawing call?
-                0 #+NIL (round (+ ascent descent)))))))
+                (round (- max-y min-y)))))))
 
 (defun font-fixed-width-p (truetype-font)
   (declare (ignore truetype-font))

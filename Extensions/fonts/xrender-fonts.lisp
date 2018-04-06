@@ -198,7 +198,7 @@ and its value is the path to the font file.")
                               :x-origin (- left)
                               :y-origin top
                               :x-advance dx
-                              :y-advance dy)
+                              :y-advance 0)
       (let ((right (+ left (array-dimension arr 1))))
         (glyph-info glyph-id dx dy left right top)))))
 
@@ -224,12 +224,6 @@ and its value is the path to the font file.")
 
 (defmethod clim-clx::font-glyph-right ((font truetype-font) char)
   (glyph-info-right (font-glyph-info font char)))
-
-(defun font-glyph-top (font char)
-  (glyph-info-top (font-glyph-info font char)))
-
-(defun font-glyph-height (font char)
-  (glyph-info-height (font-glyph-info font char)))
 
 ;;; Simple custom cache for glyph IDs and widths. Much faster than
 ;;; using the char->glyph-info hash table directly.

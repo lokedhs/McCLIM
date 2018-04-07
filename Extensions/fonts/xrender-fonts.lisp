@@ -106,6 +106,8 @@ and its value is the path to the font file.")
       do (handler-case
              (register-font-file port file)
            (error (condition)
+             (warn "Failed to load font: ~s: ~a" file condition))
+           (zpb-ttf::regrettable-value (condition)
              (warn "Failed to load font: ~s: ~a" file condition)))))
 
 (defmethod clim-extensions:port-all-font-families :around
@@ -125,21 +127,23 @@ and its value is the path to the font file.")
   (defun register-font-file (port file)
     (climi::with-lock-held (*zpb-font-lock*)
       (let ((loader (zpb-ttf:open-font-loader file)))
-        (let* ((family-name (zpb-ttf:family-name loader))
-               (family (ensure-gethash family-name font-families
-                                       (make-instance 'truetype-font-family
-                                                      :port port
-                                                      :name (zpb-ttf:family-name loader))))
-               (face-name (zpb-ttf:subfamily-name loader))
-               (font-face (ensure-gethash
-                           (list family-name face-name) font-faces
-                           (make-instance 'truetype-face
-                                          :family family
-                                          :name (zpb-ttf:subfamily-name loader)
-                                          :loader loader))))
-          (declare (ignore font-face))
-          (setf (gethash (list family-name face-name) *font-files*) file)
-          (pushnew family (clim-clx::font-families port))))))
+        (unwind-protect
+             (let* ((family-name (zpb-ttf:family-name loader))
+                    (family (ensure-gethash family-name font-families
+                                            (make-instance 'truetype-font-family
+                                                           :port port
+                                                           :name (zpb-ttf:family-name loader))))
+                    (face-name (zpb-ttf:subfamily-name loader))
+                    (font-face (ensure-gethash
+                                (list family-name face-name) font-faces
+                                (make-instance 'truetype-face
+                                               :family family
+                                               :name (zpb-ttf:subfamily-name loader)
+                                               :loader loader))))
+               (declare (ignore font-face))
+               (setf (gethash (list family-name face-name) *font-files*) file)
+               (pushnew family (clim-clx::font-families port)))
+          (zpb-ttf:close-font-loader loader)))))
 
   (defun make-truetype-font (port filename size)
     (climi::with-lock-held (*zpb-font-lock*)

@@ -812,6 +812,117 @@ time an indexed pattern is drawn.")
 				    (- max-x min-x) (- max-y min-y)
 				    0 (* 2 pi) t))))))))))
 
+(defun find-rgba-format (display)
+  (or (getf (xlib:display-plist display) 'rgba-format)
+      (let* ((formats (xlib::render-query-picture-formats display))
+             (format (find-if (lambda (v)
+                                (and (= (byte-size (xlib:picture-format-red-byte v)) 8)
+                                     (= (byte-size (xlib:picture-format-green-byte v)) 8)
+                                     (= (byte-size (xlib:picture-format-blue-byte v)) 8)
+                                     (= (byte-size (xlib:picture-format-alpha-byte v)) 8)))
+                              formats)))
+        (unless format
+          (error "Can't find 8-bit RGBA format"))
+        (setf (getf (xlib:display-plist display) 'rgba-format) format))))
+
+(defun find-alpha-mask-format (display)
+  (or (getf (xlib:display-plist display) 'alpha-mask-format)
+      (let* ((formats (xlib::render-query-picture-formats display))
+             (format (find-if (lambda (v)
+                                (and (= (byte-size (xlib:picture-format-red-byte v)) 0)
+                                     (= (byte-size (xlib:picture-format-green-byte v)) 0)
+                                     (= (byte-size (xlib:picture-format-blue-byte v)) 0)
+                                     (= (byte-size (xlib:picture-format-alpha-byte v)) 8)))
+                              formats)))
+        (unless format
+          (error "Can't find 8-bit RGBA format"))
+        (setf (getf (xlib:display-plist display) 'alpha-mask-format) format))))
+
+(defun create-dest-picture (drawable)
+  (or (getf (xlib:window-plist drawable) 'cached-picture)
+      (setf (getf (xlib:window-plist drawable) 'cached-picture)
+            (xlib:render-create-picture drawable
+                                        :format (xlib:find-window-picture-format (xlib:drawable-root drawable))
+                                        :poly-edge :smooth
+                                        :poly-mode :precise))))
+
+
+(defun create-pen (drawable gc)
+  (let* ((fg (xlib::gcontext-foreground gc))
+         (cached-pen (getf (xlib:gcontext-plist gc) 'cached-pen)))
+    (cond ((and cached-pen (equal (second cached-pen) fg))
+           (first cached-pen))
+          (t
+           (when cached-pen
+             (xlib:render-free-picture (first cached-pen)))
+           (let* ((pixmap (xlib:create-pixmap :drawable (xlib:drawable-root drawable)
+                                              :width 1
+                                              :height 1
+                                              :depth 32))
+                  (picture (xlib:render-create-picture pixmap
+                                                       :format (find-rgba-format (xlib::drawable-display drawable))
+                                                       :repeat :on))
+                  (colour (list (ash (ldb (byte 8 16) fg) 8)
+                                (ash (ldb (byte 8 8) fg) 8)
+                                (ash (ldb (byte 8 0) fg) 8)
+                                #xFFFF)))
+             (xlib:render-fill-rectangle picture :src colour 0 0 1 1)
+             (xlib:free-pixmap pixmap)
+             (setf (getf (xlib:gcontext-plist gc) 'cached-pen) (list picture fg))
+             picture)))))
+
+(defun render-polygon (dest src coords)
+  #+nil
+  (xlib:render-triangles dest :over src 0 0 :none
+                         (let ((result (make-array (* (- (/ (length coords) 2) 2) 6))))
+                           (loop
+                             with p0x = (aref coords 0)
+                             with p0y = (aref coords 1)
+                             with p1x = (aref coords 2)
+                             with p1y = (aref coords 3)
+                             for i from 4 below (length coords) by 2
+                             for result-index from 0 by 6
+                             for p2x = (aref coords i)
+                             for p2y = (aref coords (1+ i))
+                             do (progn
+                                  (setf (aref result result-index) p0x)
+                                  (setf (aref result (+ result-index 1)) p0y)
+                                  (setf (aref result (+ result-index 2)) p1x)
+                                  (setf (aref result (+ result-index 3)) p1y)
+                                  (setf (aref result (+ result-index 4)) p2x)
+                                  (setf (aref result (+ result-index 5)) p2y)
+                                  (setq p1x p2x)
+                                  (setq p1y p2y)))
+                           result))
+  (xlib:render-triangle-fan dest :over src 0 0 :none coords))
+
+(defun draw-line-impl (mirror gc x1 y1 x2 y2)
+  (let ((dest (create-dest-picture mirror))
+        (src (create-pen mirror gc))
+        (width (xlib:gcontext-line-width gc)))
+    (incf x1 0.5)(incf y1 0.5)(incf x2 0.5)(incf y2 0.5)
+    (let* ((dx (- x2 x1))
+           (dy (- y2 y1))
+           (d (/ (/ (if (zerop width) 1 width) 2)
+                 (sqrt (+ (* dx dx) (* dy dy)))))
+           (dnx (* d dx))
+           (dny (* d dy))
+           (p0x (+ x1 dny))
+           (p0y (- y1 dnx))
+           (p1x (- x1 dny))
+           (p1y (+ y1 dnx))
+           (p2x (+ p1x dx))
+           (p2y (+ p1y dy))
+           (p3x (+ p0x dx))
+           (p3y (+ p0y dy)))
+      (unless  (eq (xlib:picture-clip-mask dest)
+                   (xlib:gcontext-clip-mask gc))
+        (setf (xlib:picture-clip-mask dest)
+              (xlib:gcontext-clip-mask gc)))
+      (xlib:render-triangle-fan dest :over src 0 0
+                                (find-alpha-mask-format (xlib:gcontext-display gc))
+                                (vector p0x p0y p1x p1y p2x p2y p3x p3y)))))
+
 (defmethod medium-draw-line* ((medium clx-medium) x1 y1 x2 y2)
   (let ((tr (sheet-native-transformation (medium-sheet medium))))
     (with-transformed-position (tr x1 y1)
@@ -823,14 +934,14 @@ time an indexed pattern is drawn.")
                 (y2 (round-coordinate y2)))
             (cond ((and (<= #x-8000 x1 #x7FFF) (<= #x-8000 y1 #x7FFF)
                         (<= #x-8000 x2 #x7FFF) (<= #x-8000 y2 #x7FFF))
-                   (xlib:draw-line mirror gc x1 y1 x2 y2))
+                   (draw-line-impl mirror gc x1 y1 x2 y2))
                   (t
                    (let ((line (region-intersection (make-rectangle* #x-8000 #x-8000 #x7FFF #x7FFF)
                                                     (make-line* x1 y1 x2 y2))))
                      (when (linep line)
                        (multiple-value-bind (x1 y1) (line-start-point* line)
                          (multiple-value-bind (x2 y2) (line-end-point* line)
-                           (xlib:draw-line mirror gc
+                           (draw-line-impl mirror gc
                                            (min #x7FFF (max #x-8000 (round-coordinate x1)))
                                            (min #x7FFF (max #x-8000 (round-coordinate y1)))
                                            (min #x7FFF (max #x-8000 (round-coordinate x2)))

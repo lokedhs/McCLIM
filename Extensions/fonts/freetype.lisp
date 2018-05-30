@@ -232,33 +232,6 @@ rendering, otherwise the identity matrix will be used instead."
         (cached-glyphs (make-hash-table :test 'eql)))
     (ensure-glyphs-loaded font index-list glyphset cached-glyphs transform-matrix)))
 
-(defun create-dest-picture (drawable)
-  (or (getf (xlib:window-plist drawable) 'cached-picture)
-      (setf (getf (xlib:window-plist drawable) 'cached-picture)
-            (xlib:render-create-picture drawable
-                                        :format (xlib:find-window-picture-format (xlib:drawable-root drawable))
-                                        :poly-edge :smooth
-                                        :poly-mode :precise))))
-
-(defun create-pen (drawable gc)
-  (let* ((fg (xlib::gcontext-foreground gc))
-         (cached-pen (getf (xlib:gcontext-plist gc) 'cached-pen)))
-    (cond ((and cached-pen (equal (second cached-pen) fg))
-           (first cached-pen))
-          (t
-           (when cached-pen
-             (xlib:render-free-picture (first cached-pen)))
-           (let* ((pixmap (xlib:create-pixmap :drawable (xlib:drawable-root drawable) :width 1 :height 1 :depth 32))
-                  (picture (xlib:render-create-picture pixmap :format (find-rgba-format (xlib::drawable-display drawable)) :repeat :on))
-                  (colour (list (ash (ldb (byte 8 16) fg) 8)
-                                (ash (ldb (byte 8 8) fg) 8)
-                                (ash (ldb (byte 8 0) fg) 8)
-                                #xFFFF)))
-             (xlib:render-fill-rectangle picture :over colour 0 0 1 1)
-             (xlib:free-pixmap pixmap)
-             (setf (getf (xlib:gcontext-plist gc) 'cached-pen) (list picture fg))
-             picture)))))
-
 (defstruct glyph-entry codepoint x-advance y-advance x-offset y-offset)
 
 (defun make-glyph-list (font string direction)
@@ -326,8 +299,8 @@ or NIL if the current transformation is the identity transformation."
                            ;; ELSE: No transformation, make sure the glyphs are cached
                            (load-cached-glyphset font codepoints))))
         (unwind-protect
-             (let ((source (create-pen mirror gc))
-                   (dest (create-dest-picture mirror))
+             (let ((source (clim-clx::create-pen mirror gc))
+                   (dest (clim-clx::create-dest-picture mirror))
                    (vec (make-array 1 :element-type 'integer :initial-element 0)))
                (unless  (eq (xlib:picture-clip-mask dest)
                             (xlib:gcontext-clip-mask gc))

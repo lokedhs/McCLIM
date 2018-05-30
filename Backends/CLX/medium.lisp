@@ -846,6 +846,11 @@ time an indexed pattern is drawn.")
                                         :poly-edge :smooth
                                         :poly-mode :precise))))
 
+(defun make-xrender-colour (fg)
+  (list (ash (ldb (byte 8 16) fg) 8)
+        (ash (ldb (byte 8 8) fg) 8)
+        (ash (ldb (byte 8 0) fg) 8)
+        #xFFFF))
 
 (defun create-pen (drawable gc)
   (let* ((fg (xlib::gcontext-foreground gc))
@@ -870,6 +875,20 @@ time an indexed pattern is drawn.")
              (xlib:free-pixmap pixmap)
              (setf (getf (xlib:gcontext-plist gc) 'cached-pen) (list picture fg))
              picture)))))
+
+(defun create-line-style-pen (drawable gc)
+  (let* ((fg (xlib::gcontext-foreground gc))
+         (pixmap (xlib:create-pixmap :drawable (xlib:drawable-root drawable)
+                                     :width 2
+                                     :height 1
+                                     :depth 32))
+         (picture (xlib:render-create-picture pixmap
+                                              :format (find-rgba-format (xlib::drawable-display drawable))
+                                              :repeat :on))
+         (colour (make-xrender-colour fg)))
+    (xlib:render-fill-rectangle picture :src colour 0 0 1 1)
+    (xlib:free-pixmap pixmap)
+    picture))
 
 (defun render-polygon (dest src coords)
   #+nil
@@ -900,7 +919,10 @@ time an indexed pattern is drawn.")
   (let ((dest (create-dest-picture mirror))
         (src (create-pen mirror gc))
         (width (xlib:gcontext-line-width gc)))
-    (incf x1 0.5)(incf y1 0.5)(incf x2 0.5)(incf y2 0.5)
+    (incf x1 0.5)
+    (incf y1 0.5)
+    (incf x2 0.5)
+    (incf y2 0.5)
     (let* ((dx (- x2 x1))
            (dy (- y2 y1))
            (d (/ (/ (if (zerop width) 1 width) 2)

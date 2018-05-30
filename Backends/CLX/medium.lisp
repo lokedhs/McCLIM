@@ -876,19 +876,40 @@ time an indexed pattern is drawn.")
              (setf (getf (xlib:gcontext-plist gc) 'cached-pen) (list picture fg))
              picture)))))
 
-(defun create-line-style-pen (drawable gc)
+(defun create-dashed-line-style-pen (drawable gc dx dy)
   (let* ((fg (xlib::gcontext-foreground gc))
+         (dashes (xlib:gcontext-dashes gc))
          (pixmap (xlib:create-pixmap :drawable (xlib:drawable-root drawable)
-                                     :width 2
+                                     :width (reduce #'+ dashes)
                                      :height 1
                                      :depth 32))
          (picture (xlib:render-create-picture pixmap
                                               :format (find-rgba-format (xlib::drawable-display drawable))
                                               :repeat :on))
          (colour (make-xrender-colour fg)))
-    (xlib:render-fill-rectangle picture :src colour 0 0 1 1)
+    (loop
+      with i = 0
+      for (num-on num-off) on dashes by #'cddr
+      when (plusp num-on)
+        do (xlib:render-fill-rectangle picture :src colour i 0 (+ i num-on) 1)
+      do (incf i (+ num-on (or num-off 0))))
     (xlib:free-pixmap pixmap)
+    ;;
+    ;; Rotate the source pattern
+    (let ((a (atan dy dx)))
+      (apply #'xlib:render-set-picture-transform picture
+             (mapcar (lambda (v) (truncate (* v #x10000)))
+                     (list (cos a) (sin a) 0
+                           (- (sin a)) (cos a) 0
+                           0 0 1))))
+    ;;
     picture))
+
+(defun create-line-style-pen (drawable gc dx dy)
+  (let ((line-style (xlib:gcontext-line-style gc)))
+    (ecase line-style
+      (:solid (list (create-pen drawable gc) nil))
+      (:dash (list (create-dashed-line-style-pen drawable gc dx dy) t)))))
 
 (defun render-polygon (dest src coords)
   #+nil
@@ -916,34 +937,41 @@ time an indexed pattern is drawn.")
   (xlib:render-triangle-fan dest :over src 0 0 :none coords))
 
 (defun draw-line-impl (mirror gc x1 y1 x2 y2)
-  (let ((dest (create-dest-picture mirror))
-        (src (create-pen mirror gc))
-        (width (xlib:gcontext-line-width gc)))
-    (incf x1 0.5)
-    (incf y1 0.5)
-    (incf x2 0.5)
-    (incf y2 0.5)
-    (let* ((dx (- x2 x1))
-           (dy (- y2 y1))
-           (d (/ (/ (if (zerop width) 1 width) 2)
-                 (sqrt (+ (* dx dx) (* dy dy)))))
-           (dnx (* d dx))
-           (dny (* d dy))
-           (p0x (+ x1 dny))
-           (p0y (- y1 dnx))
-           (p1x (- x1 dny))
-           (p1y (+ y1 dnx))
-           (p2x (+ p1x dx))
-           (p2y (+ p1y dy))
-           (p3x (+ p0x dx))
-           (p3y (+ p0y dy)))
-      (unless  (eq (xlib:picture-clip-mask dest)
-                   (xlib:gcontext-clip-mask gc))
-        (setf (xlib:picture-clip-mask dest)
-              (xlib:gcontext-clip-mask gc)))
-      (xlib:render-triangle-fan dest :over src 0 0
-                                (find-alpha-mask-format (xlib:gcontext-display gc))
-                                (vector p0x p0y p1x p1y p2x p2y p3x p3y)))))
+  (log:info "type: ~s" (xlib:gcontext-line-style gc))
+  (let* ((width (xlib:gcontext-line-width gc))
+         (dx (- x2 x1))
+         (dy (- y2 y1))
+         (d (/ (/ (if (zerop width) 1 width) 2)
+               (sqrt (+ (* dx dx) (* dy dy)))))
+         (dest (create-dest-picture mirror)))
+    (destructuring-bind (src need-free)
+        (create-line-style-pen mirror gc dx dy)
+      (unwind-protect
+           (progn
+             (incf x1 0.5)
+             (incf y1 0.5)
+             (incf x2 0.5)
+             (incf y2 0.5)
+             (let* ((dnx (* d dx))
+                    (dny (* d dy))
+                    (p0x (+ x1 dny))
+                    (p0y (- y1 dnx))
+                    (p1x (- x1 dny))
+                    (p1y (+ y1 dnx))
+                    (p2x (+ p1x dx))
+                    (p2y (+ p1y dy))
+                    (p3x (+ p0x dx))
+                    (p3y (+ p0y dy)))
+               (unless  (eq (xlib:picture-clip-mask dest)
+                            (xlib:gcontext-clip-mask gc))
+                 (setf (xlib:picture-clip-mask dest)
+                       (xlib:gcontext-clip-mask gc)))
+               (xlib:render-triangle-fan dest :over src 0 0
+                                         (find-alpha-mask-format (xlib:gcontext-display gc))
+                                         (vector p0x p0y p1x p1y p2x p2y p3x p3y))))
+        ;; Unwind form
+        (when need-free
+          (xlib:render-free-picture src))))))
 
 (defmethod medium-draw-line* ((medium clx-medium) x1 y1 x2 y2)
   (let ((tr (sheet-native-transformation (medium-sheet medium))))

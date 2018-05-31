@@ -838,13 +838,21 @@ time an indexed pattern is drawn.")
           (error "Can't find 8-bit RGBA format"))
         (setf (getf (xlib:display-plist display) 'alpha-mask-format) format))))
 
-(defun create-dest-picture (drawable)
-  (or (getf (xlib:window-plist drawable) 'cached-picture)
-      (setf (getf (xlib:window-plist drawable) 'cached-picture)
-            (xlib:render-create-picture drawable
-                                        :format (xlib:find-window-picture-format (xlib:drawable-root drawable))
-                                        :poly-edge :smooth
-                                        :poly-mode :precise))))
+(defun create-picture-from-drawable (drawable)
+  (xlib:render-create-picture drawable
+                              :format (xlib:find-window-picture-format (xlib:drawable-root drawable))
+                              :poly-edge :smooth
+                              :poly-mode :precise))
+
+(defgeneric create-dest-picture (drawable)
+  (:method ((drawable xlib:window))
+    (or (getf (xlib:window-plist drawable) 'cached-picture)
+        (setf (getf (xlib:window-plist drawable) 'cached-picture)
+              (create-picture-from-drawable drawable))))
+  (:method ((drawable xlib:pixmap))
+    (or (getf (xlib:pixmap-plist drawable) 'cached-picture)
+        (setf (getf (xlib:pixmap-plist drawable) 'cached-picture)
+              (create-picture-from-drawable drawable)))))
 
 (defun make-xrender-colour (fg)
   (list (ash (ldb (byte 8 16) fg) 8)
@@ -911,33 +919,29 @@ time an indexed pattern is drawn.")
       (:solid (list (create-pen drawable gc) nil))
       (:dash (list (create-dashed-line-style-pen drawable gc dx dy) t)))))
 
-(defun render-polygon (dest src coords)
-  #+nil
-  (xlib:render-triangles dest :over src 0 0 :none
-                         (let ((result (make-array (* (- (/ (length coords) 2) 2) 6))))
-                           (loop
-                             with p0x = (aref coords 0)
-                             with p0y = (aref coords 1)
-                             with p1x = (aref coords 2)
-                             with p1y = (aref coords 3)
-                             for i from 4 below (length coords) by 2
-                             for result-index from 0 by 6
-                             for p2x = (aref coords i)
-                             for p2y = (aref coords (1+ i))
-                             do (progn
-                                  (setf (aref result result-index) p0x)
-                                  (setf (aref result (+ result-index 1)) p0y)
-                                  (setf (aref result (+ result-index 2)) p1x)
-                                  (setf (aref result (+ result-index 3)) p1y)
-                                  (setf (aref result (+ result-index 4)) p2x)
-                                  (setf (aref result (+ result-index 5)) p2y)
-                                  (setq p1x p2x)
-                                  (setq p1y p2y)))
-                           result))
-  (xlib:render-triangle-fan dest :over src 0 0 :none coords))
+(defun render-line-sequence (mirror gc coords)
+  ;; TODO: The lines doesn't join correctly
+  (let ((coords-array (etypecase coords
+                        (vector coords)
+                        (list (coerce coords 'vector)))))
+    (loop
+      with prev-x = (aref coords-array 0)
+      with prev-y = (aref coords-array 1)
+      for i from 2 below (length coords-array) by 2
+      for x = (aref coords-array i)
+      for y = (aref coords-array (1+ i))
+      do (progn
+           (draw-line-impl mirror gc prev-x prev-y x y)
+           (setq prev-x x)
+           (setq prev-y y)))))
+
+(defun update-xrender-clipping (dest gc)
+  (unless  (eq (xlib:picture-clip-mask dest)
+               (xlib:gcontext-clip-mask gc))
+    (setf (xlib:picture-clip-mask dest)
+          (xlib:gcontext-clip-mask gc))))
 
 (defun draw-line-impl (mirror gc x1 y1 x2 y2)
-  (log:info "type: ~s" (xlib:gcontext-line-style gc))
   (let* ((width (xlib:gcontext-line-width gc))
          (dx (- x2 x1))
          (dy (- y2 y1))
@@ -962,10 +966,7 @@ time an indexed pattern is drawn.")
                     (p2y (+ p1y dy))
                     (p3x (+ p0x dx))
                     (p3y (+ p0y dy)))
-               (unless  (eq (xlib:picture-clip-mask dest)
-                            (xlib:gcontext-clip-mask gc))
-                 (setf (xlib:picture-clip-mask dest)
-                       (xlib:gcontext-clip-mask gc)))
+               (update-xrender-clipping dest gc)
                (xlib:render-triangle-fan dest :over src 0 0
                                          (find-alpha-mask-format (xlib:gcontext-display gc))
                                          (vector p0x p0y p1x p1y p2x p2y p3x p3y))))
@@ -1007,6 +1008,7 @@ time an indexed pattern is drawn.")
       (do-sequence ((x1 y1 x2 y2) coord-seq)
         (medium-draw-line* medium x1 y1 x2 y2)))))
 
+#+nil
 (defmethod medium-draw-polygon* ((medium clx-medium) coord-seq closed filled)
   ;; TODO:
   ;; . cons less
@@ -1025,6 +1027,30 @@ time an indexed pattern is drawn.")
                                                 (elt coord-seq 1)))
                            coord-seq)
                        :fill-p filled))))
+
+(defmethod medium-draw-polygon* ((medium clx-medium) coord-seq closed filled)
+  ;; TODO:
+  ;; . cons less
+  ;; . clip
+  (assert (evenp (length coord-seq)))
+  (with-transformed-positions ((sheet-native-transformation
+                                (medium-sheet medium))
+                               coord-seq)
+    (with-clx-graphics () medium
+      (let ((coords (if closed
+                        (concatenate 'vector
+                                     coord-seq
+                                     (vector (elt coord-seq 0)
+                                             (elt coord-seq 1)))
+                        coord-seq)))
+        (if filled
+            (let ((src (create-pen mirror gc))
+                  (dest (create-dest-picture mirror))
+                  (format (find-alpha-mask-format (xlib:gcontext-display gc))))
+              (update-xrender-clipping dest gc)
+              (xlib:render-triangle-fan dest :over src 0 0 format coords))
+            ;; ELSE: Draw a sequence of joined lines
+            (render-line-sequence mirror gc coords))))))
 
 (defgeneric medium-draw-rectangle-using-ink*
     (medium ink left top right bottom filled))

@@ -331,6 +331,10 @@ or NIL if the current transformation is the identity transformation."
                                          translate size (direction :ltr)
                                          transformation)
   (declare (ignore translate size))
+  (progn
+    (log:trace "drawing: ~s" string)
+    (when (equal string "Upper bound")
+      (break)))
   (with-face-from-font (face font)
     (multiple-value-bind (transform-matrix)
         (convert-transformation-to-matrix transformation)
@@ -374,6 +378,11 @@ or NIL if the current transformation is the identity transformation."
                                         &key (start 0) (end (length string))
                                           translate (direction :ltr))
   (declare (ignore translate))
+  #+nil
+  (progn
+    (log:info "measuring: ~s" string)
+    (when (equal string "Upper bound")
+      (break)))
   ;; Values to return:
   ;;   width ascent descent left right font-ascent font-descent direction first-not-done
   (with-face-from-font (face font)

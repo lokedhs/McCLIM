@@ -293,6 +293,8 @@ skips intervening non-table output record structures."))
                            args
                            body)))
 
+(defvar *replaylog* nil)
+
 (defun invoke-formatting-table
     (stream continuation
      &key x-spacing y-spacing
@@ -301,7 +303,7 @@ skips intervening non-table output record structures."))
        equalize-column-widths
        (move-cursor t)
        (record-type 'standard-table-output-record)
-       &allow-other-keys)
+     &allow-other-keys)
   (setq x-spacing (parse-space stream (or x-spacing #\Space) :horizontal))
   (setq y-spacing (parse-space stream (or y-spacing
                                           (stream-vertical-spacing stream))
@@ -328,7 +330,9 @@ skips intervening non-table output record structures."))
         (adjust-table-cells table stream)
         (when multiple-columns (adjust-multiple-columns table stream))
         (tree-recompute-extent table))
-      (replay table stream)
+      (log:info "replaying. in the non-scrolling case, this leads to text being drawn on the stream, in the scrolling case, there is nothing drawn on the screen, but this function is always called.")
+      (let ((*replaylog* t))
+        (replay table stream))
       (if move-cursor
           (setf (stream-cursor-position stream)
                 (values (bounding-rectangle-max-x table)

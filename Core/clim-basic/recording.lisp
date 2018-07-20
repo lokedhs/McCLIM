@@ -331,9 +331,13 @@ recording stream. If it is T, *STANDARD-OUTPUT* is used.")
 (defun replay (record stream &optional (region (or (pane-viewport-region stream)
                                                    (sheet-region stream))))
   (when (typep stream 'encapsulating-stream)
+    (when *replaylog* (log:info "skipping replay because stream is encapsulating"))
     (return-from replay (replay record (encapsulating-stream-stream stream) region)))
+  (when *replaylog* (log:info "not skipping replay, stream is not encapsulating, pvr=~s  sr=~s" (pane-viewport-region stream) (sheet-region stream)))
   (stream-close-text-output-record stream)
+  (when *replaylog* (unless (stream-drawing-p stream) (log:info "We're not drawing to a stream")))
   (when (stream-drawing-p stream)
+    (when *replaylog* (log:info "we're drawing to the stream"))
     (with-output-recording-options (stream :record nil)
       (with-sheet-medium (medium stream)
         (letf (((cursor-visibility (stream-text-cursor stream)) nil) ;; FIXME?
@@ -349,7 +353,8 @@ recording stream. If it is T, *STANDARD-OUTPUT* is used.")
     (setq region (or (pane-viewport-region stream) +everywhere+)))
   (with-drawing-options (stream :clipping-region region)
     (map-over-output-records-overlapping-region
-     #'replay-output-record record region x-offset y-offset
+     #'(lambda (&rest args) (when *replaylog* (log:info "replaying rec: ~s" record)) (apply #'replay-output-record args))
+     record region x-offset y-offset
      stream region x-offset y-offset)))
 
 (defmethod output-record-hit-detection-rectangle* ((record output-record))

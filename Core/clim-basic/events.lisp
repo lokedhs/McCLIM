@@ -248,7 +248,10 @@
   ())
 
 (define-event-class window-repaint-event (window-event)
-  ())
+  ((stack-trace :accessor window-event/stack-trace)))
+
+(defmethod initialize-instance :before ((obj clim::window-repaint-event) &key)
+  (setf (window-event/stack-trace obj) (with-output-to-string (s) (trivial-backtrace:print-backtrace-to-stream s))))
 
 (define-event-class window-manager-event (standard-event) ())
 

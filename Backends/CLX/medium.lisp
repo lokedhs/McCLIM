@@ -1458,7 +1458,10 @@ time an indexed pattern is drawn.")
       (truncate (+ n 0.5))))
 
 (defun render-scroll-sheet (sheet x y dx dy update-fn)
-  (let ((parent (pane-viewport sheet)))
+  (when (and (typep sheet 'clim-stream-pane)
+             (not (stream-drawing-p sheet)))
+    #+nil
+    (log:info "2: moving without drawing sheet: ~s" (type-of sheet)))  (let ((parent (pane-viewport sheet)))
     (if (null parent)
         ;; No parent
         (funcall update-fn)
@@ -1508,7 +1511,8 @@ time an indexed pattern is drawn.")
                                                  0 0
                                                  0 0
                                                  dest-x dest-y
-                                                 width-integer height-integer))
+                                                 width-integer height-integer)
+                          (log:info "fast render"))
                         (let ((climi::*inhibit-dispatch-repaint* t))
                           (funcall update-fn))
                         (repaint-sheet sheet updated-rectangle)))))))))))

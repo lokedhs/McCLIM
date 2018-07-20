@@ -2502,11 +2502,20 @@ SCROLLER-PANE appear on the ergonomic left hand side, or leave set to
 
 (defun change-stream-space-requirements (pane &key width height)
   (check-type pane clim-stream-pane)
+  (log:trace "Chaging space req: ~s (~s,~s)" pane width height)
   (when width
     (setf (stream-width pane) width))
   (when height
     (setf (stream-height pane) height))
   (change-space-requirements pane))
+
+(defmethod change-space-requirements :around ((pane t) &rest rest)
+  (declare (ignore rest))
+  (let ((prev-size (sheet-region pane)))
+    (prog1
+        (call-next-method)
+      (let ((new-size (sheet-region pane)))
+        (log:trace "Space requirements changed for: ~s. old=~s new=~s" pane prev-size new-size)))))
 
 (defmethod compose-space :around ((pane clim-stream-pane) &key width height)
   (declare (ignore width height))
@@ -2641,12 +2650,14 @@ SCROLLER-PANE appear on the ergonomic left hand side, or leave set to
   (funcall-presentation-generic-function presentation-type-history type))
 
 (defmethod %note-stream-end-of-page ((stream clim-stream-pane) action new-height)
-  (change-stream-space-requirements stream :height new-height)
-  (unless (eq :allow (stream-end-of-page-action stream))
-    (scroll-extent stream 0 (max 0 (-  new-height
-                                       (bounding-rectangle-height
-                                        (or (pane-viewport stream)
-                                            stream)))))))
+  (log:info "stream end of page, drawing: ~s  (stream: ~s)" (stream-drawing-p stream) stream)
+  (when (stream-drawing-p stream)
+    (change-stream-space-requirements stream :height new-height)
+    (unless (eq :allow (stream-end-of-page-action stream))
+      (scroll-extent stream 0 (max 0 (-  new-height
+                                         (bounding-rectangle-height
+                                          (or (pane-viewport stream)
+                                              stream))))))))
 
 ;;; INTERACTOR PANES
 

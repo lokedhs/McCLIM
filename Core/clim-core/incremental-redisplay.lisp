@@ -940,6 +940,7 @@ in an equalp hash table"))
                      (add-output-record record (stream-current-output-record stream))
                      (set-medium-cursor-position (end-graphics-state record) stream)
                      (setf (parent-cache record) parent-cache) )) ))))
+      (force-output stream)
       record)))
 
 ;;; The Franz user guide says that updating-output does

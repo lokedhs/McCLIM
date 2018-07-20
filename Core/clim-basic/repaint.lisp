@@ -45,6 +45,7 @@ want to do the same.")
   (unless *inhibit-dispatch-repaint* (call-next-method)))
 
 (defmethod queue-repaint ((sheet basic-sheet) (event window-repaint-event))
+  (log:info "Queuing a repaint at: ~s" (window-event-region event))
   (queue-event sheet event))
 
 (defmethod handle-repaint ((sheet basic-sheet) region)    
@@ -131,6 +132,7 @@ want to do the same.")
 
 (defmethod handle-event ((sheet standard-repainting-mixin)
 			 (event window-repaint-event))
+  (log:info "got repaint event, repainting: ~s, stack trace: (skipped)" (window-event-region event))
   (repaint-sheet sheet (window-event-region event)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

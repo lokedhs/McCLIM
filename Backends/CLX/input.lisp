@@ -272,16 +272,19 @@
                         :region (make-rectangle* x y (+ x width) (+ y height))))
         ;;
         (:selection-notify
+         (log:info "event received: selection notify")
          (make-instance 'clx-selection-notify-event
                         :sheet sheet
                         :selection selection
                         :target target
                         :property property))
         (:selection-clear
-         (make-instance 'selection-clear-event
+         (log:info "event received: selection clear")
+         (make-instance 'clx-selection-clear-event
                         :sheet sheet
                         :selection selection))
         (:selection-request
+         (log:info "event received: selection request")
          (make-instance 'clx-selection-request-event
                         :sheet sheet
                         :selection selection

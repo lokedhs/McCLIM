@@ -228,16 +228,16 @@
 	  (name (frame-pretty-name frame)))
       (setf (xlib:wm-hints window) (xlib:make-wm-hints :input :on))
       (setf (xlib:wm-name window) name)
-      (unless (exactly-encodable-as-string-p name)
+      (unless (every (lambda (v) (<= 0 (char-code v) 127)) name)
         (xlib:change-property window
                               :_NET_WM_NAME
-                              (utf8-string-encode (map 'vector #'char-code name))
+                              (babel:string-to-octets name :encoding :utf-8)
                               :UTF8_STRING 8))
       (setf (xlib:wm-icon-name window) name)
-      (unless (exactly-encodable-as-string-p name)
+      (unless (every (lambda (v) (<= 0 (char-code v) 127)) name)
         (xlib:change-property window
                               :_NET_WM_ICON_NAME
-                              (utf8-string-encode (map 'vector #'char-code name))
+                              (babel:string-to-octets name :encoding :utf-8)
                               :UTF8_STRING 8))
       (xlib:set-wm-class
        window

@@ -54,38 +54,67 @@
 
 ;;;; Text Selection Protocol
 
-(defgeneric release-selection (port &optional time)
-  (:documentation "Relinquish ownership of the selection."))
+(deftype clipboard-type () '(member :selection :clipboard))
 
-(defgeneric request-selection (port requestor time)
-  (:documentation
-   #.(format nil "Request that the window system retrieve the selection ~
-                  from its current owner. This should cause a ~
-                  selection-notify-event to be delivered.")))
+(defclass clipboard-port-mixin ()
+  ((selection :initform nil
+              :accessor clipboard-port-mixin/selection)
+   (clipboard :initform nil
+              :accessor clipboard-port-mixin/clipboard)))
 
-(defgeneric bind-selection (port window &optional time)
-  (:documentation "Take ownership of the selection."))
+(defgeneric bind-clipboard-for-port (port window type object)
+  (:documentation "Instructs the window system to ownership of the clipboard of type TYPE.
+Implementations of this function should return true if the clipboard
+was successfully acquired."))
 
-(defgeneric send-selection (port request-event string)
-  (:documentation "Send 'string' to a client in response to a selection-request-event."))
+(defgeneric release-clipboard-for-port (port window type)
+  (:documentation "Releases the ownership of the clipboard of type TYPE."))
 
-(defgeneric get-selection-from-event (port event)
-  (:documentation "Given a selection-notify event, return a string containing
-the incoming selection."))
+(defun clipboard-for-type (port type)
+  (ecase type
+    (:selection (clipboard-port-mixin/selection port))
+    (:clipboard (clipboard-port-mixin/clipboard port))))
+
+(defun (setf clipboard-for-type) (content port type)
+  (ecase type
+    (:selection (setf (clipboard-port-mixin/selection port) content))
+    (:clipboard (setf (clipboard-port-mixin/clipboard port) content))))
+
+(defun bind-clipboard (pane type object)
+  (check-type type clipboard-type)
+  (log:info "Binding clipboard ~s to: ~s" type object)
+  (let ((port (port pane)))
+    (when (bind-clipboard-for-port port pane type object)
+      (setf (clipboard-for-type port type) (list object pane)))))
+
+(defun release-clipboard (pane type)
+  (check-type type clipboard-type)
+  (log:info "unbinding clipboard ~s" type)
+  (let* ((port (port pane))
+         (content (clipboard-for-type port type)))
+    (when content
+      (release-clipboard-for-port port (second content) type)
+      (setf (clipboard-for-type port type) nil))))
+
+(defgeneric convert-clipboard-content (type object)
+  (:method ((type (eql :string)) (object string))
+    object))
 
 ;;; These events are probably very X11 specific.
 
 ;;; Backends will likely produce subclasses of selection-notify-event
 ;;; and selection-request-event.
 
-(defclass selection-event (window-event)
-  ((selection :initarg :selection
-              :reader selection-event-selection)))
+#+nil
+(progn
+ (defclass selection-event (window-event)
+   ((selection :initarg :selection
+               :reader selection-event-selection)))
 
-(defclass selection-clear-event (selection-event)  ())
-(defclass selection-notify-event (selection-event) ())
-(defclass selection-request-event (selection-event)
-  ((requestor :initarg :requestor :reader selection-event-requestor)))
+ (defclass selection-clear-event (selection-event)  ())
+ (defclass selection-notify-event (selection-event) ())
+ (defclass selection-request-event (selection-event)
+   ((requestor :initarg :requestor :reader selection-event-requestor))))
 
 
 ;;;; Random Notes
@@ -192,16 +221,16 @@ the incoming selection."))
         (call-next-method))))
 
 
-(defun pane-clear-markings (pane &optional time)
+(defun pane-clear-markings (pane)
   (repaint-markings pane (slot-value pane 'markings)
                     (setf (slot-value pane 'markings) nil))
-  (release-selection (port pane) time))
+  (release-clipboard pane :selection))
  
 
 (defmethod eos/shift-click ((pane extended-output-stream) event)
   (with-slots (point-1-x point-1-y point-2-x point-2-y dragging-p) pane
     (cond ((eql +pointer-left-button+ (pointer-event-button event))
-           (pane-clear-markings pane (event-timestamp event))
+           (pane-clear-markings pane)
            ;; start dragging, set point-1 where the mouse is
            (setf point-1-x (pointer-event-x event))
            (setf point-1-y (pointer-event-y event))
@@ -229,15 +258,19 @@ the incoming selection."))
             point-2-y (pointer-event-y event)
             dragging-p nil)
       ;;
+      #+nil
       (let ((owner (selection-owner (port pane))))
         (when (and owner (not (eq owner pane)))
           (distribute-event (port pane)
                             (make-instance 'selection-clear-event
                                            :sheet owner
                                            :selection :primary))))
+      #+nil
       (when (bind-selection (port pane) pane (event-timestamp event))
 	(setf (selection-owner (port pane)) pane)
-	(setf (selection-timestamp (port pane)) (event-timestamp event))))))
+	(setf (selection-timestamp (port pane)) (event-timestamp event)))
+      ;; New clipboard support
+      (bind-clipboard pane :selection (fetch-selection pane)))))
 
 (defun repaint-markings (pane old-markings new-markings)
   (let ((old-region (reduce #'region-union (mapcar #'(lambda (x) (marking-region pane x)) old-markings)
@@ -368,10 +401,12 @@ the incoming selection."))
 
 ;;;; Selections Events
 
+#+nil
 (defmethod dispatch-event :around ((pane cut-and-paste-mixin)
                                    (event selection-clear-event))  
   (pane-clear-markings pane (event-timestamp event)))
 
+#+nil
 (defmethod dispatch-event :around ((pane cut-and-paste-mixin)
                                    (event selection-request-event))  
   (send-selection (port pane) event (fetch-selection pane)))
@@ -379,6 +414,7 @@ the incoming selection."))
 (define-condition selection-notify ()
   ((event :reader event-of :initarg :event)))
 
+#+nil
 (defmethod handle-event ((pane cut-and-paste-mixin)
                          (event selection-notify-event))
   (signal 'selection-notify :event event))

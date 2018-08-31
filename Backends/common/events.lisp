@@ -121,6 +121,7 @@
 ;;;
 
 
+#+nil
 (defmethod distribute-event ((port standard-event-port-mixin)
 				    (event selection-event))
   (let ((owner (port-selection-owner port)))
@@ -132,6 +133,7 @@
 			event))))
 
 
+#+nil
 (defmethod distribute-event ((port standard-event-port-mixin)
 				    (event selection-notify-event))
   (let ((owner (port-selection-requester port)))

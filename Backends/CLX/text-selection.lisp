@@ -1,24 +1,31 @@
 (in-package :clim-clx)
 
-(defclass clx-text-selection-port-mixin ()
-  ((selection-owner :initform nil :accessor selection-owner)
-   (selection-timestamp :initform nil :accessor selection-timestamp)))
+(defclass clx-text-selection-port-mixin (clim-internals::clipboard-port-mixin)
+  (#+nil(selection-owner :initform nil :accessor selection-owner)
+   #+nil(selection-timestamp :initform nil :accessor selection-timestamp)))
 
 ;;;; Backend component of text selection support
 
 ;;; Event classes
 
-(defclass clx-selection-notify-event (selection-notify-event)
+(defclass clx-selection-notify-event (window-event)
   ((target   :initarg :target
              :reader selection-event-target)
    (property :initarg :property
              :reader selection-event-property)))
 
-(defclass clx-selection-request-event (selection-request-event)
+(defclass clx-selection-request-event (window-event)
   ((target    :initarg :target
               :reader selection-event-target)
    (property  :initarg :property
-              :reader selection-event-property)))
+              :reader selection-event-property)
+   (selection :initarg :selection
+              :reader selection-event-selection)
+   (requestor :initarg :requestor
+              :reader selection-event-requestor)))
+
+(defclass clx-selection-clear-event (window-event)
+  ())
 
 ;;; Conversions
 
@@ -38,57 +45,68 @@
 ;;; :TIMESTAMP
 ;;;    Clients want to know when we took ownership of the selection.
 
-;;; Utilities
+(defun send-selection-string (selection content requestor target property)
+  (let ((result (clim-internals::convert-clipboard-content :string content)))
+    (xlib:change-property requestor property (babel:string-to-octets result :encoding :utf-8) target 8)
+    (xlib:send-event requestor :selection-notify nil
+                               :window requestor
+                               :event-window requestor
+                               :selection selection
+                               :target target
+                               :property property)))
 
-(defun utf8-string-encode (code-points)
-  (let ((res (make-array (length code-points)
-                         :adjustable t
-                         :fill-pointer 0)))
-    (map 'nil
-         (lambda (code-point)
-           (cond ((< code-point (expt 2 7))
-                  (vector-push-extend code-point res))
-                 ((< code-point (expt 2 11))
-                  (vector-push-extend (logior #b11000000 (ldb (byte 5 6) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 0) code-point)) res))
-                 ((< code-point (expt 2 16))
-                  (vector-push-extend (logior #b11100000 (ldb (byte 4 12) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 6) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 0) code-point)) res))
-                 ((< code-point (1- (expt 2 21)))
-                  (vector-push-extend (logior #b11110000 (ldb (byte 3 18) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 12) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 6) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 0) code-point)) res))
-                 ((< code-point (1- (expt 2 26)))
-                  (vector-push-extend (logior #b11110000 (ldb (byte 2 24) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 18) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 12) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 6) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 0) code-point)) res))
-                 ((< code-point (1- (expt 2 31)))
-                  (vector-push-extend (logior #b11110000 (ldb (byte 1 30) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 24) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 18) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 12) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 6) code-point)) res)
-                  (vector-push-extend (logior #b10000000 (ldb (byte 6 0) code-point)) res))
-                 (t
-                  (error "Bad code point: ~D." code-point))))
-         code-points)
-    res))
+(defun handle-selection-request (port selection requestor target property)
+  (log:info "selection request: port=~s, sel=~s, tgt=~s, prop=~s" port selection target property)
+  (let ((content (first (clim-internals::clipboard-for-type port (clx->clipboard selection)))))
+    (case target
+      ((:UTF8_STRING :|text/plain;charset=utf-8|)
+       (send-selection-string selection content requestor target property))
+      (t
+       (xlib:send-event requestor :selection-notify nil
+                                  :window requestor
+                                  :event-window requestor
+                                  :selection selection
+                                  :target target
+                                  :property nil)))))
+
+(defmethod dispatch-event :around (pane (event clx-selection-request-event))
+  (let ((selection (selection-event-selection event))
+        (requestor (selection-event-requestor event))
+        (target (selection-event-target event))
+        (property (selection-event-property event)))
+    (handle-selection-request (port pane) selection requestor target property)))
 
 ;;; Protocol functions
 
+(defun clipboard->clx (type)
+  (ecase type
+    (:selection :primary)
+    (:clipboard :clipboard)))
+
+(defun clx->clipboard (type)
+  (ecase type
+    (:primary :selection)
+    (:clipboard :clipboard)))
+
+(defmethod clim-internals::bind-clipboard-for-port ((port clx-text-selection-port-mixin) window type object)
+  (let ((type (clipboard->clx type))
+        (mirror (sheet-direct-xmirror window)))
+    (log:info "xmirror for pane: ~s" mirror)
+    (xlib:set-selection-owner (xlib:window-display mirror) type mirror)
+    (let ((result (eq (xlib:selection-owner (xlib:window-display mirror) type) mirror)))
+      (log:info "bind result! ~s" result)
+      result)))
+
+(defmethod clim-internals::release-clipboard-for-port ((port clx-text-selection-port-mixin) window type)
+  (xlib:set-selection-owner (clx-port-display port) (clipboard->clx type) nil))
+
+#+nil
 (defmethod bind-selection ((port clx-text-selection-port-mixin) window &optional time)
-  (xlib:set-selection-owner
-   (xlib:window-display (sheet-direct-xmirror window))
-   :primary (sheet-direct-xmirror window) time)
-  (eq (xlib:selection-owner
-       (xlib:window-display (sheet-direct-xmirror window))
-       :primary)
+  (xlib:set-selection-owner (xlib:window-display (sheet-direct-xmirror window)) :primary (sheet-direct-xmirror window) time)
+  (eq (xlib:selection-owner (xlib:window-display (sheet-direct-xmirror window)) :primary)
       (sheet-direct-xmirror window)))
 
+#+nil
 (defmethod release-selection ((port clx-text-selection-port-mixin) &optional time)
   (xlib:set-selection-owner
    (clx-port-display port)
@@ -96,9 +114,11 @@
   (setf (selection-owner port) nil)
   (setf (selection-timestamp port) nil))
 
+#+nil
 (defmethod request-selection ((port clx-text-selection-port-mixin) requestor time)
   (xlib:convert-selection :primary :UTF8_STRING requestor :bounce time))
 
+#+nil
 (defmethod get-selection-from-event ((port clx-text-selection-port-mixin) (event clx-selection-notify-event))
   (if (null (selection-event-property event))
       (progn
@@ -115,6 +135,7 @@
 
 ;; Incredibly crappy broken unportable Latin 1 encoder which should be
 ;; replaced by various implementation-specific versions.
+#+nil
 (flet ((latin1-code-p (x)
 	 (not (or (< x 9) (< 10 x 32) (< #x7f x #xa0) (> x 255)))))
   (defun string-encode (string)
@@ -125,6 +146,7 @@
 ;;; TODO: INCR property?
 ;;;
 ;;; FIXME: per ICCCM we MUST support :MULTIPLE
+#+nil
 (defmethod send-selection ((port clx-text-selection-port-mixin) (event clx-selection-request-event) string)
   (let ((requestor (selection-event-requestor event))
         (property  (selection-event-property event))

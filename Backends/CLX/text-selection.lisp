@@ -1,8 +1,7 @@
 (in-package :clim-clx)
 
-(defclass clx-text-selection-port-mixin (clim-internals::clipboard-port-mixin)
-  (#+nil(selection-owner :initform nil :accessor selection-owner)
-   #+nil(selection-timestamp :initform nil :accessor selection-timestamp)))
+(defclass clx-text-selection-port-mixin ()
+  ())
 
 ;;;; Backend component of text selection support
 
@@ -55,9 +54,9 @@
                                :target target
                                :property property)))
 
-(defun handle-selection-request (port selection requestor target property)
-  (log:info "selection request: port=~s, sel=~s, tgt=~s, prop=~s" port selection target property)
-  (let ((content (first (clim-internals::clipboard-for-type port (clx->clipboard selection)))))
+(defun handle-selection-request (frame selection requestor target property)
+  (log:info "selection request: frame=~s, sel=~s, tgt=~s, prop=~s" frame selection target property)
+  (let ((content (first (clim-internals::clipboard-for-type frame (clx->clipboard selection)))))
     (case target
       ((:UTF8_STRING :|text/plain;charset=utf-8|)
        (send-selection-string selection content requestor target property))
@@ -74,7 +73,7 @@
         (requestor (selection-event-requestor event))
         (target (selection-event-target event))
         (property (selection-event-property event)))
-    (handle-selection-request (port pane) selection requestor target property)))
+    (handle-selection-request (pane-frame pane) selection requestor target property)))
 
 ;;; Protocol functions
 

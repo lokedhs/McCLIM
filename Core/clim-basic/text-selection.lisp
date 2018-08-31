@@ -56,45 +56,45 @@
 
 (deftype clipboard-type () '(member :selection :clipboard))
 
-(defclass clipboard-port-mixin ()
+(defclass clipboard-frame-mixin ()
   ((selection :initform nil
-              :accessor clipboard-port-mixin/selection)
+              :accessor clipboard-frame-mixin/selection)
    (clipboard :initform nil
-              :accessor clipboard-port-mixin/clipboard)))
+              :accessor clipboard-frame-mixin/clipboard)))
 
 (defgeneric bind-clipboard-for-port (port window type object)
-  (:documentation "Instructs the window system to ownership of the clipboard of type TYPE.
+  (:documentation "Instructs the window system to request ownership of the clipboard of type TYPE.
 Implementations of this function should return true if the clipboard
 was successfully acquired."))
 
 (defgeneric release-clipboard-for-port (port window type)
   (:documentation "Releases the ownership of the clipboard of type TYPE."))
 
-(defun clipboard-for-type (port type)
+(defun clipboard-for-type (frame type)
   (ecase type
-    (:selection (clipboard-port-mixin/selection port))
-    (:clipboard (clipboard-port-mixin/clipboard port))))
+    (:selection (clipboard-frame-mixin/selection frame))
+    (:clipboard (clipboard-frame-mixin/clipboard frame))))
 
-(defun (setf clipboard-for-type) (content port type)
+(defun (setf clipboard-for-type) (content frame type)
   (ecase type
-    (:selection (setf (clipboard-port-mixin/selection port) content))
-    (:clipboard (setf (clipboard-port-mixin/clipboard port) content))))
+    (:selection (setf (clipboard-frame-mixin/selection frame) content))
+    (:clipboard (setf (clipboard-frame-mixin/clipboard frame) content))))
 
 (defun bind-clipboard (pane type object)
   (check-type type clipboard-type)
   (log:info "Binding clipboard ~s to: ~s" type object)
   (let ((port (port pane)))
     (when (bind-clipboard-for-port port pane type object)
-      (setf (clipboard-for-type port type) (list object pane)))))
+      (setf (clipboard-for-type (pane-frame pane) type) (list object pane)))))
 
 (defun release-clipboard (pane type)
   (check-type type clipboard-type)
   (log:info "unbinding clipboard ~s" type)
-  (let* ((port (port pane))
-         (content (clipboard-for-type port type)))
+  (let* ((frame (pane-frame pane))
+         (content (clipboard-for-type frame type)))
     (when content
-      (release-clipboard-for-port port (second content) type)
-      (setf (clipboard-for-type port type) nil))))
+      (release-clipboard-for-port (port frame) (second content) type)
+      (setf (clipboard-for-type frame type) nil))))
 
 (defgeneric convert-clipboard-content (type object)
   (:method ((type (eql :string)) (object string))

@@ -72,7 +72,8 @@
 input focus. This is a McCLIM extension."))
     
 (defclass standard-application-frame (application-frame
-				      presentation-history-mixin)
+				      presentation-history-mixin
+                                      clipboard-frame-mixin)
   ((port :initform nil
 	 :initarg :port
 	 :accessor port)

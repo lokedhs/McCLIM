@@ -96,10 +96,6 @@ was successfully acquired."))
       (release-clipboard-for-port (port frame) (second content) type)
       (setf (clipboard-for-type frame type) nil))))
 
-(defgeneric convert-clipboard-content (type object)
-  (:method ((type (eql :string)) (object string))
-    object))
-
 ;;; These events are probably very X11 specific.
 
 ;;; Backends will likely produce subclasses of selection-notify-event

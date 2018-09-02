@@ -45,7 +45,7 @@
 ;;;    Clients want to know when we took ownership of the selection.
 
 (defun send-selection-string (selection content requestor target property)
-  (let ((result (clim-internals::convert-clipboard-content :string content)))
+  (let ((result (funcall-presentation-generic-function clim-internals::convert-clipboard-content content (presentation-type-of content) :string)))
     (xlib:change-property requestor property (babel:string-to-octets result :encoding :utf-8) target 8)
     (xlib:send-event requestor :selection-notify nil
                                :window requestor

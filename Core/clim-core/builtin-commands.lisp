@@ -85,6 +85,25 @@
     (object presentation)
   (list presentation))
 
+;;; Clipboard commands
+
+(define-command
+    (com-copy-to-clipboard :command-table global-command-table :name "Copy to clipboard")
+    ((obj t :prompt "object"))
+  (bind-clipboard *standard-output* obj :presentation-type (presentation-type-of obj)))
+
+(define-presentation-to-command-translator com-copy-to-clipboard-translator
+    (t com-copy-to-clipboard global-command-table
+       ;; TODO: Need a tester here
+       :documentation "Copy presentation to clipboard"
+       :pointer-documentation "Copy presentation to clipboard"
+       :menu clipboard
+       :gesture :describe-presentation)
+    (object presentation)
+  (progn
+    (log:info "o=~s p=~s" object presentation)
+    (list presentation)))
+
 ;;; Default presentation translator; translates an object to itself.
 
 (define-presentation-translator default-translator

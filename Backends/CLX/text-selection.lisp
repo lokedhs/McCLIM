@@ -26,26 +26,8 @@
 (defclass clx-selection-clear-event (window-event)
   ())
 
-;;; Conversions
-
-;; we at least want to support:
-
-;;; :TEXT, :STRING
-;;;
-;;; :UTF8_STRING
-;;;    As seen from xterm [make that the preferred encoding]
-;;;
-;;; :COMPOUND_TEXT
-;;;    Perhaps relatively easy to produce, hard to grok.
-;;;
-;;; :TARGETS
-;;;    Clients want legitimately to find out what we support.
-;;;
-;;; :TIMESTAMP
-;;;    Clients want to know when we took ownership of the selection.
-
-(defun send-selection-string (selection content requestor target property)
-  (let ((result (funcall-presentation-generic-function clim-internals::convert-clipboard-content content (presentation-type-of content) :string)))
+(defun send-selection-string (selection obj presentation-type requestor target property)
+  (let ((result (clim-internals::convert-clipboard-content obj :string :type presentation-type)))
     (xlib:change-property requestor property (babel:string-to-octets result :encoding :utf-8) target 8)
     (xlib:send-event requestor :selection-notify nil
                                :window requestor
@@ -54,26 +36,62 @@
                                :target target
                                :property property)))
 
-(defun handle-selection-request (frame selection requestor target property)
-  (log:info "selection request: frame=~s, sel=~s, tgt=~s, prop=~s" frame selection target property)
-  (let ((content (first (clim-internals::clipboard-for-type frame (clx->clipboard selection)))))
-    (case target
-      ((:UTF8_STRING :|text/plain;charset=utf-8|)
-       (send-selection-string selection content requestor target property))
-      (t
-       (xlib:send-event requestor :selection-notify nil
-                                  :window requestor
-                                  :event-window requestor
-                                  :selection selection
-                                  :target target
-                                  :property nil)))))
+(defun send-selection-html (selection obj presentation-type requestor target property)
+  (let ((result (clim-internals::convert-clipboard-content obj :html :type presentation-type)))
+    (xlib:change-property requestor property (babel:string-to-octets result :encoding :utf-8) target 8)
+    (xlib:send-event requestor :selection-notify nil
+                               :window requestor
+                               :event-window requestor
+                               :selection selection
+                               :target target
+                               :property property)))
+
+(defun handle-selection-request (pane selection requestor target property)
+  (log:info "Got selection request for target: ~s (req=~s, prop=~s)" target requestor property)
+  (let* ((frame (pane-frame pane))
+         (display (xlib:window-display (sheet-direct-xmirror pane))))
+    (destructuring-bind (obj presentation-type pane)
+        (clim-internals::clipboard-for-type frame (clx->clipboard selection))
+      (declare (ignore pane))
+      (case target
+        ((:TARGETS)
+         (let ((available-types (cons ':TARGETS
+                                      (loop
+                                        for type in '((:string :UTF8_STRING :STRING :TEXT)
+                                                      (:html :|text/html|))
+                                        when (clim-internals::convert-clipboard-content obj (car type)
+                                                                                        :type presentation-type
+                                                                                        :check-only t)
+                                          append (cdr type)))))
+           (log:info "available types for ~s: ~s" obj available-types)
+           (xlib:change-property requestor
+                                 property
+                                 (mapcar (lambda (v) (xlib:intern-atom display v)) available-types)
+                                 target 32)
+           (xlib:send-event requestor :selection-notify nil
+                                      :window requestor
+                                      :event-window requestor
+                                      :selection selection
+                                      :target target
+                                      :property property)))
+        ((:UTF8_STRING :|text/plain;charset=utf-8| :STRING :TEXT)
+         (send-selection-string selection obj presentation-type requestor target property))
+        ((:|text/html|)
+         (send-selection-html selection obj presentation-type requestor target property))
+        (t
+         (xlib:send-event requestor :selection-notify nil
+                                    :window requestor
+                                    :event-window requestor
+                                    :selection selection
+                                    :target target
+                                    :property nil))))))
 
 (defmethod dispatch-event :around (pane (event clx-selection-request-event))
   (let ((selection (selection-event-selection event))
         (requestor (selection-event-requestor event))
         (target (selection-event-target event))
         (property (selection-event-property event)))
-    (handle-selection-request (pane-frame pane) selection requestor target property)))
+    (handle-selection-request pane selection requestor target property)))
 
 ;;; Protocol functions
 
@@ -87,13 +105,11 @@
     (:primary :selection)
     (:clipboard :clipboard)))
 
-(defmethod clim-internals::bind-clipboard-for-port ((port clx-text-selection-port-mixin) window type object)
-  (let ((type (clipboard->clx type))
+(defmethod clim-internals::bind-clipboard-for-port ((port clx-text-selection-port-mixin) window clipboard-type object object-type)
+  (let ((clipboard-type (clipboard->clx clipboard-type))
         (mirror (sheet-direct-xmirror window)))
-    (log:info "xmirror for pane: ~s" mirror)
-    (xlib:set-selection-owner (xlib:window-display mirror) type mirror)
-    (let ((result (eq (xlib:selection-owner (xlib:window-display mirror) type) mirror)))
-      (log:info "bind result! ~s" result)
+    (xlib:set-selection-owner (xlib:window-display mirror) clipboard-type mirror)
+    (let ((result (eq (xlib:selection-owner (xlib:window-display mirror) clipboard-type) mirror)))
       result)))
 
 (defmethod clim-internals::release-clipboard-for-port ((port clx-text-selection-port-mixin) window type)

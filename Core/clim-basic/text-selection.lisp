@@ -70,6 +70,10 @@ was successfully acquired."))
 (defgeneric release-clipboard-for-port (port window clipboard-type)
   (:documentation "Releases the ownership of the clipboard of type TYPE."))
 
+(defgeneric request-clipboard-for-port (port window clipboard-type type callback)
+  (:documentation "Requests the content of clipboard type CLIPBOARD-TYPE.
+Once the information is available, CALLBACK is called with the result in a single argument. "))
+
 (defun clipboard-for-type (frame type)
   (ecase type
     (:selection (clipboard-frame-mixin/selection frame))
@@ -96,6 +100,10 @@ was successfully acquired."))
     (when content
       (release-clipboard-for-port (port frame) (second content) type)
       (setf (clipboard-for-type frame type) nil))))
+
+(defun request-clipboard (pane type callback &key (clipboard-type :clipboard))
+  (let ((port (port pane)))
+    (request-clipboard-for-port port pane clipboard-type type callback)))
 
 ;;; These events are probably very X11 specific.
 
@@ -267,7 +275,7 @@ was successfully acquired."))
 	(setf (selection-owner (port pane)) pane)
 	(setf (selection-timestamp (port pane)) (event-timestamp event)))
       ;; New clipboard support
-      (bind-clipboard pane :selection (fetch-selection pane)))))
+      (bind-clipboard pane (fetch-selection pane) :clipboard-type :selection))))
 
 (defun repaint-markings (pane old-markings new-markings)
   (let ((old-region (reduce #'region-union (mapcar #'(lambda (x) (marking-region pane x)) old-markings)

@@ -620,3 +620,11 @@ is not T, NIL or a `minibuffer-pane'."))))
                        (:border-width border-width)
                      pane)))
       pane)))
+
+(defmethod handle-event ((pane drei-pane) (event climi::clipboard-string-result-event))
+  (insert-sequence (point (view pane)) (climi::clipboard-string-result-event-content event))
+  (redisplay-frame-pane (pane-frame pane) pane))
+
+(defmethod handle-event ((pane climi::clim-sheet-input-mixin) (event climi::clipboard-string-result-event))
+  (insert-sequence (point (view pane)) (climi::clipboard-string-result-event-content event))
+  (redisplay-frame-pane (pane-frame pane) pane))

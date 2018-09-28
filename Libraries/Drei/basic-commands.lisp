@@ -453,6 +453,16 @@ Successive kills append to the kill ring."
   (let* ((concatenate-p (eq (command-name *previous-command*) 'com-kill-line)))
     (user-kill-line (point) numarg numargp concatenate-p)))
 
+;;; Clipboard related commands
+
+(define-command (com-yank-from-clipboard :name t :command-table editing-table)
+    ()
+  (let* ((instance (drei:drei-instance))
+         (pane (drei:editor-pane instance)))
+    (break)
+    (log:info "instance = ~s, pane = ~s" instance pane))
+  (climi::request-clipboard (drei:editor-pane (drei:drei-instance)) :clipboard-type :clipboard :request-type :string))
+
 ;;; Autogenerate commands
 
 (define-deletion-commands word deletion-table)
@@ -503,6 +513,14 @@ Successive kills append to the kill ring."
 (set-key `(com-kill-line ,*numeric-argument-marker* ,*numeric-argument-marker*)
 	 'deletion-table
 	 '((#\k :control)))
+
+(set-key `com-yank-from-clipboard
+         'editing-table
+         '((:insert :shift)))
+
+(set-key `com-yank-from-clipboard
+         'editing-table
+         '((#\V :control)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 

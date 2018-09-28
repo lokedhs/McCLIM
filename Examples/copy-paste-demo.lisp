@@ -43,6 +43,4 @@
 
 (define-copy-paste-test-command (com-show-clipboard :name "Show Clipboard")
     ()
-  (clim-internals::request-clipboard *standard-output* :string
-                                     (lambda (result)
-                                       (log:info "result: ~s" result))))
+  (clim-internals::request-clipboard *standard-output* :clipboard-type :clipboard :request-type :string))

@@ -585,7 +585,8 @@ if stuff is inserted after the insertion pointer."
                                                       finally (return 0))
                                                 t t)
                  (handler-case (process-gestures-or-command drei)
-                   (climi::selection-notify (c)
+                   #+nil
+                   (drei-paste-selection (c)
                      (let* ((event (climi::event-of c))
                             (sheet (event-sheet event))
                             (port  (port sheet)))
@@ -874,3 +875,12 @@ invoke the command, and the accumulated numeric argument."
              (values object
                      (if (presentation-subtypep ptype 'expression)
                          ptype 'expression))))))))
+
+#+nil
+(drei-paste-selection (c)
+                     (let* ((event (climi::event-of c))
+                            (sheet (event-sheet event))
+                            (port  (port sheet)))
+                       (when (eq *standard-input* sheet)
+                         (insert-sequence (point (view drei))
+                                          (clim-backend:get-selection-from-event port event)))))

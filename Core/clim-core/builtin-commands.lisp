@@ -87,13 +87,20 @@
 
 ;;; Clipboard commands
 
+(defclass wrapped-copyable-object ()
+  ((obj               :initarg :obj
+                      :reader wrapped-copyable-object/obj)
+   (presentation-type :initarg :type
+                      :reader wrapped-copyable-object/type)))
+
 (define-command
     (com-copy-to-clipboard :command-table global-command-table :name "Copy to clipboard")
-    ((obj t :prompt "object"))
-  (bind-clipboard *standard-output* obj :presentation-type (presentation-type-of obj)))
+    ((obj (wrapped-copyable-object) :prompt "object"))
+  (bind-clipboard *standard-output* (wrapped-copyable-object/obj obj)
+                  :presentation-type (or (wrapped-copyable-object/type obj) (presentation-type-of obj))))
 
 (define-presentation-to-command-translator com-copy-to-clipboard-translator
-    (t com-copy-to-clipboard global-command-table
+    (wrapped-copyable-object com-copy-to-clipboard global-command-table
        ;; TODO: Need a tester here
        :documentation "Copy presentation to clipboard"
        :pointer-documentation "Copy presentation to clipboard"
@@ -103,6 +110,19 @@
   (progn
     (log:info "o=~s p=~s" object presentation)
     (list presentation)))
+
+(define-presentation-translator presentation-to-copyable (t wrapped-copyable-object global-command-table)
+    (object presentation)
+  (log:info "Converting to copyable: ~s, type: ~s" object (presentation-type presentation))
+  (make-instance 'wrapped-copyable-object :obj object :type (presentation-type presentation)))
+
+(define-command
+    (com-copy-selection-to-clipboard :command-table global-command-table :name "Copy selection to clipboard")
+    ()
+  (let ((selection-content (clipboard-for-type *application-frame* :selection)))
+    (if selection-content
+        (bind-clipboard *standard-output* (first selection-content) :presentation-type (second selection-content))
+        (format t "No active selection~%"))))
 
 ;;; Default presentation translator; translates an object to itself.
 

@@ -62,6 +62,25 @@
    (clipboard :initform nil
               :accessor clipboard-frame-mixin/clipboard)))
 
+(defclass clipboard-result-event (standard-event)
+  ())
+
+(defclass clipboard-string-result-event (clipboard-result-event)
+  ((content :initarg :content
+            :reader clipboard-string-result-event-content)))
+
+(defmethod print-object ((obj clipboard-string-result-event) stream)
+  (print-unreadable-object (obj stream :type t :identity t)
+    (format stream "CONTENT ~s" (clipboard-string-result-event-content obj))))
+
+(defclass clipboard-html-result-event (clipboard-result-event)
+  ((content :initarg :content
+            :reader clipboard-html-result-event-content)))
+
+(defmethod print-object ((obj clipboard-html-result-event) stream)
+  (print-unreadable-object (obj stream :type t :identity t)
+    (format stream "CONTENT ~s" (clipboard-html-result-event-content obj))))
+
 (defgeneric bind-clipboard-for-port (port window clipboard-type object object-type)
   (:documentation "Instructs the window system to request ownership of the clipboard of type TYPE.
 Implementations of this function should return true if the clipboard
@@ -69,6 +88,12 @@ was successfully acquired."))
 
 (defgeneric release-clipboard-for-port (port window clipboard-type)
   (:documentation "Releases the ownership of the clipboard of type TYPE."))
+
+(defgeneric request-clipboard-for-port (port window clipboard-type request-types)
+  (:documentation "Requests the content of clipboard type CLIPBOARD-TYPE.
+REQUEST-TYPES is a list of types that the clipboard content will be
+converted to. The data will be converted to the first compatible
+format in this list."))
 
 (defun clipboard-for-type (frame type)
   (ecase type
@@ -96,6 +121,10 @@ was successfully acquired."))
     (when content
       (release-clipboard-for-port (port frame) (second content) type)
       (setf (clipboard-for-type frame type) nil))))
+
+(defun request-clipboard (pane &key (clipboard-type :clipboard) (request-type :string))
+  (let ((request-type (if (listp request-type) request-type (list request-type))))
+    (request-clipboard-for-port (port pane) pane clipboard-type request-type)))
 
 ;;; These events are probably very X11 specific.
 
@@ -232,9 +261,10 @@ was successfully acquired."))
            (setf point-1-x (pointer-event-x event))
            (setf point-1-y (pointer-event-y event))
            (setf dragging-p t))
+          #+nil
           ((eql +pointer-middle-button+ (pointer-event-button event))
-           ;; paste           
-           (request-selection (port pane) #|:UTF8_STRING|# pane (event-timestamp event)))
+           ;; paste
+           (request-clipboard pane :clipboard-type :selection :request-type :string))
           ((eql +pointer-right-button+ (pointer-event-button event))
            (when (and point-1-x point-1-y point-2-x point-2-y)
              ;; If point-1 and point-2 are set up pick the nearest (what metric?) and drag it around.
@@ -267,7 +297,7 @@ was successfully acquired."))
 	(setf (selection-owner (port pane)) pane)
 	(setf (selection-timestamp (port pane)) (event-timestamp event)))
       ;; New clipboard support
-      (bind-clipboard pane :selection (fetch-selection pane)))))
+      (bind-clipboard pane (fetch-selection pane) :clipboard-type :selection))))
 
 (defun repaint-markings (pane old-markings new-markings)
   (let ((old-region (reduce #'region-union (mapcar #'(lambda (x) (marking-region pane x)) old-markings)

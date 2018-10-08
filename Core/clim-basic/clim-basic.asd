@@ -1,4 +1,3 @@
-
 (defsystem #:clim-basic
   :depends-on (#:clim-lisp
                #:spatial-trees
@@ -13,12 +12,13 @@
    (:file "protocol-classes" :depends-on ("decls"))
    (:file "multiprocessing" :depends-on ("decls")) ; legacy mp backends are in Lisp-Dep/mp-*.lisp
    (:file "utils" :depends-on ("decls" "multiprocessing"))
-   (:file "design" :depends-on ("decls" "protocol-classes" "multiprocessing" "utils"))
-   (:file "X11-colors" :depends-on ("decls" "protocol-classes" "multiprocessing" "design"))
+   (:file "X11-colors" :depends-on ("decls" "protocol-classes" "multiprocessing" "design" "regions"))
    (:file "coordinates" :depends-on ("decls" "protocol-classes" "multiprocessing"))
    (:file "transforms" :depends-on ("decls" "protocol-classes" "multiprocessing" "coordinates" "utils"))
+   (:file "design" :depends-on ("decls" "protocol-classes" "utils" "transforms"))
    (:file "dead-keys" :depends-on ("decls"))
    (:file "regions" :depends-on ("decls" "protocol-classes" "multiprocessing" "coordinates" "utils" "transforms" "setf-star" "design"))
+   (:file "pattern" :depends-on ("decls" "protocol-classes" "utils" "design"))
    (:file "sheets" :depends-on ("decls" "protocol-classes" "multiprocessing" "utils" "transforms" "regions"))
    (:file "mirrors" :depends-on ("sheets"))
    (:file "pixmap" :depends-on ("decls" "protocol-classes" "multiprocessing" "sheets" "transforms" "regions"))

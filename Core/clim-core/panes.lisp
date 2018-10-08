@@ -243,17 +243,22 @@ order to produce a double-click")
               max-height))))
 
 (defun make-space-requirement (&key (min-width 0) (min-height 0)
-                                    (width min-width) (height min-height)
-				    (max-width +fill+) (max-height +fill+))
-  (assert (<= 0 min-width width max-width) (min-width width max-width))
-  (assert (<= 0 min-height height max-height) (min-height height max-height))
+                                 (width min-width) (height min-height)
+                                 (max-width +fill+) (max-height +fill+))
+  ;; Defensive programming. For instance SPACE-REQUIREMENT-+ may cause
+  ;; max-{width,height} to be (+ +fill+ +fill+), what exceeds our biggest
+  ;; allowed values. We fix that here.
+  (clampf min-width  0 +fill+) (clampf max-width  0 +fill+) (clampf width  min-width  max-width)
+  (clampf min-height 0 +fill+) (clampf max-height 0 +fill+) (clampf height min-height max-height)
+  (assert (<= min-width  max-width)  (min-width  max-width))
+  (assert (<= min-height max-height) (min-height max-height))
   (make-instance 'standard-space-requirement
-    :width width
-    :max-width max-width
-    :min-width min-width
-    :height height
-    :max-height max-height
-    :min-height min-height))
+                 :width width
+                 :max-width max-width
+                 :min-width min-width
+                 :height height
+                 :max-height max-height
+                 :min-height min-height))
 
 (defmethod space-requirement-components ((space-req standard-space-requirement))
   (with-slots (width min-width max-width height min-height max-height) space-req
@@ -804,6 +809,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
                       ;; UX mixins
                       ;cut-and-paste-mixin
                       mouse-wheel-scroll-mixin
+                      permanent-medium-sheet-output-mixin
                       ;; protocol class with million mixins goes last
                       pane)
   ((foreground       :initarg :foreground
@@ -885,9 +891,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
 
 ;;; TOP-LEVEL-SHEET
 
-(defclass top-level-sheet-pane (;;permanent-medium-sheet-output-mixin
-				;;mirrored-sheet-mixin
-                                single-child-composite-pane)
+(defclass top-level-sheet-pane (single-child-composite-pane)
   ()
   (:documentation "For the first pane in the architecture"))
 
@@ -1329,10 +1333,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
   (frob horizontally hbox-pane hrack-pane equalize-height)
   (frob vertically vbox-pane vrack-pane equalize-width))
 
-(defclass box-pane (box-layout-mixin
-		    composite-pane
-		    permanent-medium-sheet-output-mixin ;arg!
-		    )
+(defclass box-pane (box-layout-mixin composite-pane)
   ()
   (:documentation "Superclass for hbox-pane and vbox-pane that provides the
 		    initialization common to both."))
@@ -1644,8 +1645,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
 ;;; SPACING PANE
 
 (defclass spacing-pane (;;standard-space-requirement-options-mixin
-			single-child-composite-pane
-                        permanent-medium-sheet-output-mixin)
+			single-child-composite-pane)
   ((border-width :initarg :thickness
                  :initform 1))
   (:documentation "Never trust a random documentation string."))
@@ -1717,7 +1717,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
 
 ;;; RAISED PANE
 
-(defclass raised-pane (border-pane permanent-medium-sheet-output-mixin)
+(defclass raised-pane (border-pane)
   ()
   (:default-initargs
    :border-width 2))
@@ -1734,7 +1734,7 @@ which changed during the current execution of CHANGING-SPACE-REQUIREMENTS.
 
 ;;; LOWERED PANE
 
-(defclass lowered-pane (border-pane permanent-medium-sheet-output-mixin)
+(defclass lowered-pane (border-pane)
   ()
   (:default-initargs
    :border-width 2))
@@ -2265,7 +2265,7 @@ SCROLLER-PANE appear on the ergonomic left hand side, or leave set to
 
 ;;; LABEL PANE
 
-(defclass label-pane (composite-pane  permanent-medium-sheet-output-mixin)
+(defclass label-pane (composite-pane)
   ((label :type string
           :initarg :label
           :accessor label-pane-label
@@ -2460,7 +2460,6 @@ SCROLLER-PANE appear on the ergonomic left hand side, or leave set to
 
 (defclass clim-stream-pane (updating-output-stream-mixin
 			    pane-display-mixin
-			    permanent-medium-sheet-output-mixin
                             #-clim-mp standard-repainting-mixin
                             standard-extended-input-stream
                             standard-extended-output-stream

@@ -25,12 +25,8 @@
 		  #:image-pixmap-mixin
                   #:%make-image
                   #:image-mirror-image
-                  #:image-pattern
 		  ;;#:save-image-to-file
 		  ;;#:save-image-to-stream
-		  )
-    (:import-from :mcclim-image
-                  #:rgb-pattern
 		  )
     (:import-from :mcclim-truetype
 		  #:truetype-font-size
@@ -57,7 +53,7 @@
 		  )
     (:export
      #:with-output-to-raster-image-stream
-     #:with-output-to-rgb-pattern
-     #:with-output-to-image-pattern))
+     #:with-output-to-rgba-pattern
+     #:with-output-to-image-stream))
 
 

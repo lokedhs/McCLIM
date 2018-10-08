@@ -225,7 +225,7 @@
          (metrics-key (font-name-metrics-key font-name))
          (size (font-name-size font-name)))
     (let ((scale (/ size 1000)))
-      (cond ((= start end)
+      (cond ((>= start end)
              (values 0 0 0 0))
             (t
              (let ((position-newline (position #\newline string :start start)))
